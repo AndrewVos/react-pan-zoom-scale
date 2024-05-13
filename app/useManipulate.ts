@@ -1,45 +1,23 @@
-import { RefObject, useEffect, useMemo, useRef } from "react";
+import { RefObject, useEffect, useRef, useState } from "react";
 
-const useManipulate = ({
-  minZoom = 1,
-  enablePan = true,
-  enablePinch = true,
-  enableRotate = true,
+const usePan = ({
+  element,
+  enabled = true,
+  onPan,
 }: {
-  minZoom?: number;
-  enablePan?: boolean;
-  enablePinch?: boolean;
-  enableRotate?: boolean;
-}): { elementRef: RefObject<HTMLDivElement> } => {
-  const options = useMemo(
-    () => ({
-      enablePan,
-      enablePinch,
-      enableRotate,
-    }),
-    [enablePan, enablePinch, enableRotate]
-  );
-  const elementRef = useRef<HTMLDivElement>(null);
+  element: HTMLDivElement | null;
+  enabled?: boolean;
+  onPan: (x: number, y: number) => void;
+}) => {
   const events = useRef<PointerEvent[]>([]);
 
-  const oldRotation = useRef(-1);
-  const oldDistanceBetweenFingers = useRef(-1);
   const oldMiddleOfFingers = useRef<{
     x: number;
     y: number;
   } | null>(null);
 
-  const translation = useRef({
-    x: 0,
-    y: 0,
-    rotation: 0,
-    zoom: 1,
-  });
-
   useEffect(() => {
-    if (!elementRef.current) return;
-
-    const element = elementRef.current;
+    if (!element) return;
 
     const handlePointerDown = (event: PointerEvent) => {
       events.current.push(event);
@@ -69,6 +47,63 @@ const useManipulate = ({
         return { x, y };
       };
 
+      if (events.current.length === 2) {
+        if (enabled) {
+          const pan = calculatePan();
+          onPan(pan.x, pan.y);
+        }
+      }
+
+      events.current[index] = event;
+    };
+
+    const handlePointerUp = (event: PointerEvent) => {
+      const index = events.current.findIndex(
+        (cachedEvent) => cachedEvent.pointerId === event.pointerId
+      );
+      events.current.splice(index, 1);
+
+      if (events.current.length < 2) {
+        oldMiddleOfFingers.current = null;
+      }
+    };
+
+    element.addEventListener("pointerdown", handlePointerDown);
+    element.addEventListener("pointermove", handlePointerMove);
+    element.addEventListener("pointerup", handlePointerUp);
+
+    return () => {
+      element.removeEventListener("pointerdown", handlePointerDown);
+      element.removeEventListener("pointermove", handlePointerMove);
+      element.removeEventListener("pointerup", handlePointerUp);
+    };
+  }, [element, enabled, onPan]);
+};
+
+const usePinch = ({
+  element,
+  enabled = true,
+  onPinch,
+}: {
+  element: HTMLDivElement | null;
+  enabled?: boolean;
+  onPinch: (scale: number) => void;
+}) => {
+  const events = useRef<PointerEvent[]>([]);
+  const oldDistanceBetweenFingers = useRef(-1);
+
+  useEffect(() => {
+    if (!element) return;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      events.current.push(event);
+    };
+
+    const handlePointerMove = (event: PointerEvent) => {
+      const index = events.current.findIndex(
+        (cachedEvent) => cachedEvent.pointerId === event.pointerId
+      );
+
       const calculateZoom = () => {
         const newDistanceBetweenFingers = Math.abs(
           events.current[0].clientX - events.current[1].clientX
@@ -89,6 +124,61 @@ const useManipulate = ({
 
         return zoom;
       };
+      if (events.current.length === 2) {
+        if (enabled) {
+          const zoom = calculateZoom();
+          onPinch(zoom);
+        }
+      }
+
+      events.current[index] = event;
+    };
+
+    const handlePointerUp = (event: PointerEvent) => {
+      const index = events.current.findIndex(
+        (cachedEvent) => cachedEvent.pointerId === event.pointerId
+      );
+      events.current.splice(index, 1);
+
+      if (events.current.length < 2) {
+        oldDistanceBetweenFingers.current = -1;
+      }
+    };
+    element.addEventListener("pointerdown", handlePointerDown);
+    element.addEventListener("pointermove", handlePointerMove);
+    element.addEventListener("pointerup", handlePointerUp);
+
+    return () => {
+      element.removeEventListener("pointerdown", handlePointerDown);
+      element.removeEventListener("pointermove", handlePointerMove);
+      element.removeEventListener("pointerup", handlePointerUp);
+    };
+  }, [element, enabled, onPinch]);
+};
+
+const useRotate = ({
+  element,
+  enabled = true,
+  onRotate,
+}: {
+  element: HTMLDivElement | null;
+  enabled?: boolean;
+  onRotate: (degrees: number) => void;
+}) => {
+  const events = useRef<PointerEvent[]>([]);
+  const oldRotation = useRef(-1);
+
+  useEffect(() => {
+    if (!element) return;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      events.current.push(event);
+    };
+
+    const handlePointerMove = (event: PointerEvent) => {
+      const index = events.current.findIndex(
+        (cachedEvent) => cachedEvent.pointerId === event.pointerId
+      );
 
       const calculateRotate = () => {
         const angleInDegrees =
@@ -111,28 +201,10 @@ const useManipulate = ({
       };
 
       if (events.current.length === 2) {
-        if (options.enablePan) {
-          const pan = calculatePan();
-          translation.current.x += pan.x;
-          translation.current.y += pan.y;
-        }
-
-        if (options.enablePinch) {
-          const zoom = calculateZoom();
-          translation.current.zoom += zoom;
-          translation.current.zoom = Math.max(
-            minZoom,
-            translation.current.zoom
-          );
-        }
-
-        if (options.enableRotate) {
-          const rotate = calculateRotate();
-          translation.current.rotation += rotate;
+        if (enabled) {
+          onRotate(calculateRotate());
         }
       }
-
-      element.style.transform = `rotate(${translation.current.rotation}deg) scale(${translation.current.zoom}) translate(${translation.current.x}px, ${translation.current.y}px)`;
 
       events.current[index] = event;
     };
@@ -144,12 +216,9 @@ const useManipulate = ({
       events.current.splice(index, 1);
 
       if (events.current.length < 2) {
-        oldDistanceBetweenFingers.current = -1;
         oldRotation.current = -1;
-        oldMiddleOfFingers.current = null;
       }
     };
-
     element.addEventListener("pointerdown", handlePointerDown);
     element.addEventListener("pointermove", handlePointerMove);
     element.addEventListener("pointerup", handlePointerUp);
@@ -159,7 +228,62 @@ const useManipulate = ({
       element.removeEventListener("pointermove", handlePointerMove);
       element.removeEventListener("pointerup", handlePointerUp);
     };
-  }, [elementRef, options]);
+  }, [element, enabled, onRotate]);
+};
+
+const useManipulate = ({
+  minZoom = 1,
+  enablePan = true,
+  enablePinch = true,
+  enableRotate = true,
+}: {
+  minZoom?: number;
+  enablePan?: boolean;
+  enablePinch?: boolean;
+  enableRotate?: boolean;
+}): { elementRef: RefObject<HTMLDivElement> } => {
+  const elementRef = useRef<HTMLDivElement>(null);
+  const [element, setElement] = useState<HTMLDivElement | null>(null);
+
+  const translation = useRef({
+    x: 0,
+    y: 0,
+    rotation: 0,
+    zoom: 1,
+  });
+
+  usePan({
+    element,
+    enabled: enablePan,
+    onPan: (x, y) => {
+      translation.current.x += x;
+      translation.current.y += y;
+      element!.style.transform = `rotate(${translation.current.rotation}deg) scale(${translation.current.zoom}) translate(${translation.current.x}px, ${translation.current.y}px)`;
+    },
+  });
+
+  usePinch({
+    element,
+    enabled: enablePinch,
+    onPinch: (scale) => {
+      translation.current.zoom += scale;
+      translation.current.zoom = Math.max(minZoom, translation.current.zoom);
+      element!.style.transform = `rotate(${translation.current.rotation}deg) scale(${translation.current.zoom}) translate(${translation.current.x}px, ${translation.current.y}px)`;
+    },
+  });
+
+  useRotate({
+    element,
+    enabled: enableRotate,
+    onRotate: (degrees) => {
+      translation.current.rotation += degrees;
+      element!.style.transform = `rotate(${translation.current.rotation}deg) scale(${translation.current.zoom}) translate(${translation.current.x}px, ${translation.current.y}px)`;
+    },
+  });
+
+  useEffect(() => {
+    setElement(elementRef.current);
+  }, [elementRef]);
 
   return { elementRef };
 };
