@@ -120,6 +120,10 @@ const useManipulate = ({
         if (options.enablePinch) {
           const zoom = calculateZoom();
           translation.current.zoom += zoom;
+          translation.current.zoom = Math.max(
+            minZoom,
+            translation.current.zoom
+          );
         }
 
         if (options.enableRotate) {
