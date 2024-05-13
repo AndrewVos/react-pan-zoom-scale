@@ -1,26 +1,28 @@
 import { RefObject, useEffect, useRef, useState } from "react";
 
-const usePan = ({
+const useGesture = ({
   element,
-  enabled = true,
-  onPan,
+  onBegin,
+  onUpdate,
+  onEnd,
 }: {
   element: HTMLDivElement | null;
-  enabled?: boolean;
-  onPan: (x: number, y: number) => void;
+  onBegin?: () => void;
+  onUpdate?: (event1: PointerEvent, event2: PointerEvent) => void;
+  onEnd?: () => void;
 }) => {
   const events = useRef<PointerEvent[]>([]);
 
-  const oldMiddleOfFingers = useRef<{
-    x: number;
-    y: number;
-  } | null>(null);
-
   useEffect(() => {
-    if (!element) return;
+    if (!element) {
+      return;
+    }
 
     const handlePointerDown = (event: PointerEvent) => {
       events.current.push(event);
+      if (events.current.length === 2 && onBegin) {
+        onBegin();
+      }
     };
 
     const handlePointerMove = (event: PointerEvent) => {
@@ -28,30 +30,8 @@ const usePan = ({
         (cachedEvent) => cachedEvent.pointerId === event.pointerId
       );
 
-      const calculatePan = () => {
-        const newMiddleOfFingers = {
-          x: (events.current[0].clientX + events.current[1].clientX) / 2,
-          y: (events.current[0].clientY + events.current[1].clientY) / 2,
-        };
-
-        let x = 0;
-        let y = 0;
-
-        if (oldMiddleOfFingers.current) {
-          x = newMiddleOfFingers.x - oldMiddleOfFingers.current.x;
-          y = newMiddleOfFingers.y - oldMiddleOfFingers.current.y;
-        }
-
-        oldMiddleOfFingers.current = newMiddleOfFingers;
-
-        return { x, y };
-      };
-
-      if (events.current.length === 2) {
-        if (enabled) {
-          const pan = calculatePan();
-          onPan(pan.x, pan.y);
-        }
+      if (events.current.length === 2 && onUpdate) {
+        onUpdate(events.current[0], events.current[1]);
       }
 
       events.current[index] = event;
@@ -63,8 +43,8 @@ const usePan = ({
       );
       events.current.splice(index, 1);
 
-      if (events.current.length < 2) {
-        oldMiddleOfFingers.current = null;
+      if (onEnd) {
+        onEnd();
       }
     };
 
@@ -77,7 +57,49 @@ const usePan = ({
       element.removeEventListener("pointermove", handlePointerMove);
       element.removeEventListener("pointerup", handlePointerUp);
     };
-  }, [element, enabled, onPan]);
+  }, [element, onBegin, onUpdate, onEnd]);
+};
+
+const usePan = ({
+  element,
+  enabled = true,
+  onPan,
+}: {
+  element: HTMLDivElement | null;
+  enabled?: boolean;
+  onPan: (x: number, y: number) => void;
+}) => {
+  const previousMiddle = useRef<{
+    x: number;
+    y: number;
+  } | null>(null);
+
+  useGesture({
+    element,
+    onUpdate: (event1, event2) => {
+      if (enabled) {
+        const middle = {
+          x: (event1.clientX + event2.clientX) / 2,
+          y: (event1.clientY + event2.clientY) / 2,
+        };
+
+        let x = 0;
+        let y = 0;
+
+        if (previousMiddle.current) {
+          x = middle.x - previousMiddle.current.x;
+          y = middle.y - previousMiddle.current.y;
+        }
+
+        previousMiddle.current = middle;
+
+        onPan(x, y);
+      }
+    },
+    onEnd: () => {
+      previousMiddle.current = null;
+    },
+  });
 };
 
 const usePinch = ({
@@ -89,71 +111,33 @@ const usePinch = ({
   enabled?: boolean;
   onPinch: (scale: number) => void;
 }) => {
-  const events = useRef<PointerEvent[]>([]);
-  const oldDistanceBetweenFingers = useRef(-1);
+  const previousDistance = useRef(-1);
 
-  useEffect(() => {
-    if (!element) return;
+  useGesture({
+    element,
+    onUpdate: (event1, event2) => {
+      if (enabled) {
+        const distance = Math.abs(event1.clientX - event2.clientX);
 
-    const handlePointerDown = (event: PointerEvent) => {
-      events.current.push(event);
-    };
-
-    const handlePointerMove = (event: PointerEvent) => {
-      const index = events.current.findIndex(
-        (cachedEvent) => cachedEvent.pointerId === event.pointerId
-      );
-
-      const calculateZoom = () => {
-        const newDistanceBetweenFingers = Math.abs(
-          events.current[0].clientX - events.current[1].clientX
-        );
-
-        let zoom = 0;
+        let scale = 0;
 
         if (
-          oldDistanceBetweenFingers.current > 0 &&
-          newDistanceBetweenFingers !== oldDistanceBetweenFingers.current
+          previousDistance.current > 0 &&
+          distance !== previousDistance.current
         ) {
-          zoom =
-            (newDistanceBetweenFingers - oldDistanceBetweenFingers.current) /
-            oldDistanceBetweenFingers.current;
+          scale =
+            (distance - previousDistance.current) / previousDistance.current;
         }
 
-        oldDistanceBetweenFingers.current = newDistanceBetweenFingers;
+        previousDistance.current = distance;
 
-        return zoom;
-      };
-      if (events.current.length === 2) {
-        if (enabled) {
-          const zoom = calculateZoom();
-          onPinch(zoom);
-        }
+        onPinch(scale);
       }
-
-      events.current[index] = event;
-    };
-
-    const handlePointerUp = (event: PointerEvent) => {
-      const index = events.current.findIndex(
-        (cachedEvent) => cachedEvent.pointerId === event.pointerId
-      );
-      events.current.splice(index, 1);
-
-      if (events.current.length < 2) {
-        oldDistanceBetweenFingers.current = -1;
-      }
-    };
-    element.addEventListener("pointerdown", handlePointerDown);
-    element.addEventListener("pointermove", handlePointerMove);
-    element.addEventListener("pointerup", handlePointerUp);
-
-    return () => {
-      element.removeEventListener("pointerdown", handlePointerDown);
-      element.removeEventListener("pointermove", handlePointerMove);
-      element.removeEventListener("pointerup", handlePointerUp);
-    };
-  }, [element, enabled, onPinch]);
+    },
+    onEnd: () => {
+      previousDistance.current = -1;
+    },
+  });
 };
 
 const useRotate = ({
@@ -165,70 +149,38 @@ const useRotate = ({
   enabled?: boolean;
   onRotate: (degrees: number) => void;
 }) => {
-  const events = useRef<PointerEvent[]>([]);
-  const oldRotation = useRef(-1);
+  const previousRotation = useRef(-1);
 
-  useEffect(() => {
-    if (!element) return;
-
-    const handlePointerDown = (event: PointerEvent) => {
-      events.current.push(event);
-    };
-
-    const handlePointerMove = (event: PointerEvent) => {
-      const index = events.current.findIndex(
-        (cachedEvent) => cachedEvent.pointerId === event.pointerId
-      );
-
-      const calculateRotate = () => {
+  useGesture({
+    element,
+    onUpdate: (event1, event2) => {
+      if (enabled) {
         const angleInDegrees =
           (Math.atan2(
-            events.current[1].clientY - events.current[0].clientY,
-            events.current[1].clientX - events.current[0].clientX
+            event2.clientY - event1.clientY,
+            event2.clientX - event1.clientX
           ) *
             180) /
             Math.PI +
           180;
 
-        let newRotation = 0;
-        if (oldRotation.current > 0 && angleInDegrees !== oldRotation.current) {
-          newRotation = angleInDegrees - oldRotation.current;
+        let rotation = 0;
+        if (
+          previousRotation.current > 0 &&
+          angleInDegrees !== previousRotation.current
+        ) {
+          rotation = angleInDegrees - previousRotation.current;
         }
 
-        oldRotation.current = angleInDegrees;
+        previousRotation.current = angleInDegrees;
 
-        return newRotation;
-      };
-
-      if (events.current.length === 2) {
-        if (enabled) {
-          onRotate(calculateRotate());
-        }
+        onRotate(rotation);
       }
-
-      events.current[index] = event;
-    };
-
-    const handlePointerUp = (event: PointerEvent) => {
-      const index = events.current.findIndex(
-        (cachedEvent) => cachedEvent.pointerId === event.pointerId
-      );
-      events.current.splice(index, 1);
-
-      if (events.current.length < 2) {
-        oldRotation.current = -1;
-      }
-    };
-    element.addEventListener("pointerdown", handlePointerDown);
-    element.addEventListener("pointermove", handlePointerMove);
-    element.addEventListener("pointerup", handlePointerUp);
-
-    return () => {
-      element.removeEventListener("pointerdown", handlePointerDown);
-      element.removeEventListener("pointermove", handlePointerMove);
-      element.removeEventListener("pointerup", handlePointerUp);
-    };
-  }, [element, enabled, onRotate]);
+    },
+    onEnd: () => {
+      previousRotation.current = -1;
+    },
+  });
 };
 
 const useManipulate = ({
