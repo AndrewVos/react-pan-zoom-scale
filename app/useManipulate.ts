@@ -252,13 +252,20 @@ const useManipulate = ({
     zoom: 1,
   });
 
+  const applyTransform = () => {
+    element!.style.transformOrigin = `${
+      translation.x + element!.offsetWidth / 2
+    }px ${translation.y + element!.offsetHeight / 2}px`;
+    element!.style.transform = `scale(${translation.current.zoom}) translate(${translation.current.x}px, ${translation.current.y}px) rotate(${translation.current.rotation}deg) `;
+  };
+
   usePan({
     element,
     enabled: enablePan,
     onPan: (x, y) => {
       translation.current.x += x;
       translation.current.y += y;
-      element!.style.transform = `rotate(${translation.current.rotation}deg) scale(${translation.current.zoom}) translate(${translation.current.x}px, ${translation.current.y}px)`;
+      applyTransform();
     },
   });
 
@@ -266,9 +273,11 @@ const useManipulate = ({
     element,
     enabled: enablePinch,
     onPinch: (scale) => {
-      translation.current.zoom += scale;
-      translation.current.zoom = Math.max(minZoom, translation.current.zoom);
-      element!.style.transform = `rotate(${translation.current.rotation}deg) scale(${translation.current.zoom}) translate(${translation.current.x}px, ${translation.current.y}px)`;
+      translation.current.zoom = Math.max(
+        minZoom,
+        translation.current.zoom + scale
+      );
+      applyTransform();
     },
   });
 
@@ -277,7 +286,7 @@ const useManipulate = ({
     enabled: enableRotate,
     onRotate: (degrees) => {
       translation.current.rotation += degrees;
-      element!.style.transform = `rotate(${translation.current.rotation}deg) scale(${translation.current.zoom}) translate(${translation.current.x}px, ${translation.current.y}px)`;
+      applyTransform();
     },
   });
 
