@@ -253,9 +253,6 @@ const useManipulate = ({
   });
 
   const applyTransform = () => {
-    element!.style.transformOrigin = `${
-      translation.x + element!.offsetWidth / 2
-    }px ${translation.y + element!.offsetHeight / 2}px`;
     element!.style.transform = `scale(${translation.current.zoom}) translate(${translation.current.x}px, ${translation.current.y}px) rotate(${translation.current.rotation}deg) `;
   };
 
