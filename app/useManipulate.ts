@@ -1,74 +1,91 @@
-import { RefObject, useEffect, useRef } from "react";
+import { RefObject, useEffect, useMemo, useRef } from "react";
 
-const useManipulate = (): { elementRef: RefObject<HTMLDivElement> } => {
+const useManipulate = ({
+  minZoom = 1,
+  enablePan = true,
+  enablePinch = true,
+  enableRotate = true,
+}: {
+  minZoom?: number;
+  enablePan?: boolean;
+  enablePinch?: boolean;
+  enableRotate?: boolean;
+}): { elementRef: RefObject<HTMLDivElement> } => {
+  const options = useMemo(
+    () => ({
+      enablePan,
+      enablePinch,
+      enableRotate,
+    }),
+    [enablePan, enablePinch, enableRotate]
+  );
   const elementRef = useRef<HTMLDivElement>(null);
+  const events = useRef<PointerEvent[]>([]);
+
+  const oldRotation = useRef(-1);
+  const oldDistanceBetweenFingers = useRef(-1);
+  const oldMiddleOfFingers = useRef<{
+    x: number;
+    y: number;
+  } | null>(null);
+
+  const translation = useRef({
+    x: 0,
+    y: 0,
+    rotation: 0,
+    zoom: 1,
+  });
 
   useEffect(() => {
     if (!elementRef.current) return;
 
     const element = elementRef.current;
 
-    const events: PointerEvent[] = [];
-
-    let oldRotation = -1;
-    let oldDistanceBetweenFingers = -1;
-    let oldMiddleOfFingers: {
-      x: number;
-      y: number;
-    } | null;
-
-    const translation = {
-      x: 0,
-      y: 0,
-      rotation: 0,
-      zoom: 1,
-    };
-
     const handlePointerDown = (event: PointerEvent) => {
-      events.push(event);
+      events.current.push(event);
     };
 
     const handlePointerMove = (event: PointerEvent) => {
-      const index = events.findIndex(
+      const index = events.current.findIndex(
         (cachedEvent) => cachedEvent.pointerId === event.pointerId
       );
 
       const calculatePan = () => {
         const newMiddleOfFingers = {
-          x: (events[0].clientX + events[1].clientX) / 2,
-          y: (events[0].clientY + events[1].clientY) / 2,
+          x: (events.current[0].clientX + events.current[1].clientX) / 2,
+          y: (events.current[0].clientY + events.current[1].clientY) / 2,
         };
 
         let x = 0;
         let y = 0;
 
-        if (oldMiddleOfFingers) {
-          x = newMiddleOfFingers.x - oldMiddleOfFingers.x;
-          y = newMiddleOfFingers.y - oldMiddleOfFingers.y;
+        if (oldMiddleOfFingers.current) {
+          x = newMiddleOfFingers.x - oldMiddleOfFingers.current.x;
+          y = newMiddleOfFingers.y - oldMiddleOfFingers.current.y;
         }
 
-        oldMiddleOfFingers = newMiddleOfFingers;
+        oldMiddleOfFingers.current = newMiddleOfFingers;
 
         return { x, y };
       };
 
       const calculateZoom = () => {
         const newDistanceBetweenFingers = Math.abs(
-          events[0].clientX - events[1].clientX
+          events.current[0].clientX - events.current[1].clientX
         );
 
         let zoom = 0;
 
         if (
-          oldDistanceBetweenFingers > 0 &&
-          newDistanceBetweenFingers !== oldDistanceBetweenFingers
+          oldDistanceBetweenFingers.current > 0 &&
+          newDistanceBetweenFingers !== oldDistanceBetweenFingers.current
         ) {
           zoom =
-            (newDistanceBetweenFingers - oldDistanceBetweenFingers) /
-            oldDistanceBetweenFingers;
+            (newDistanceBetweenFingers - oldDistanceBetweenFingers.current) /
+            oldDistanceBetweenFingers.current;
         }
 
-        oldDistanceBetweenFingers = newDistanceBetweenFingers;
+        oldDistanceBetweenFingers.current = newDistanceBetweenFingers;
 
         return zoom;
       };
@@ -76,49 +93,56 @@ const useManipulate = (): { elementRef: RefObject<HTMLDivElement> } => {
       const calculateRotate = () => {
         const angleInDegrees =
           (Math.atan2(
-            events[1].clientY - events[0].clientY,
-            events[1].clientX - events[0].clientX
+            events.current[1].clientY - events.current[0].clientY,
+            events.current[1].clientX - events.current[0].clientX
           ) *
             180) /
             Math.PI +
           180;
 
         let newRotation = 0;
-        if (oldRotation > 0 && angleInDegrees !== oldRotation) {
-          newRotation = angleInDegrees - oldRotation;
+        if (oldRotation.current > 0 && angleInDegrees !== oldRotation.current) {
+          newRotation = angleInDegrees - oldRotation.current;
         }
 
-        oldRotation = angleInDegrees;
+        oldRotation.current = angleInDegrees;
 
         return newRotation;
       };
 
-      if (events.length === 2) {
-        const pan = calculatePan();
-        translation.x += pan.x;
-        translation.y += pan.y;
+      if (events.current.length === 2) {
+        if (options.enablePan) {
+          const pan = calculatePan();
+          translation.current.x += pan.x;
+          translation.current.y += pan.y;
+        }
 
-        const zoom = calculateZoom();
-        translation.zoom += zoom;
-        const rotate = calculateRotate();
-        translation.rotation += rotate;
+        if (options.enablePinch) {
+          const zoom = calculateZoom();
+          translation.current.zoom += zoom;
+        }
+
+        if (options.enableRotate) {
+          const rotate = calculateRotate();
+          translation.current.rotation += rotate;
+        }
       }
 
-      element.style.transform = `rotate(${translation.rotation}deg) scale(${translation.zoom}) translate(${translation.x}px, ${translation.y}px)`;
+      element.style.transform = `rotate(${translation.current.rotation}deg) scale(${translation.current.zoom}) translate(${translation.current.x}px, ${translation.current.y}px)`;
 
-      events[index] = event;
+      events.current[index] = event;
     };
 
     const handlePointerUp = (event: PointerEvent) => {
-      const index = events.findIndex(
+      const index = events.current.findIndex(
         (cachedEvent) => cachedEvent.pointerId === event.pointerId
       );
-      events.splice(index, 1);
+      events.current.splice(index, 1);
 
-      if (events.length < 2) {
-        oldDistanceBetweenFingers = -1;
-        oldRotation = -1;
-        oldMiddleOfFingers = null;
+      if (events.current.length < 2) {
+        oldDistanceBetweenFingers.current = -1;
+        oldRotation.current = -1;
+        oldMiddleOfFingers.current = null;
       }
     };
 
@@ -131,7 +155,7 @@ const useManipulate = (): { elementRef: RefObject<HTMLDivElement> } => {
       element.removeEventListener("pointermove", handlePointerMove);
       element.removeEventListener("pointerup", handlePointerUp);
     };
-  }, [elementRef]);
+  }, [elementRef, options]);
 
   return { elementRef };
 };
