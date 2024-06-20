@@ -30,11 +30,11 @@ const useGesture = ({
         (cachedEvent) => cachedEvent.pointerId === event.pointerId
       );
 
+      events.current[index] = event;
+
       if (events.current.length === 2 && onUpdate) {
         onUpdate(events.current[0], events.current[1]);
       }
-
-      events.current[index] = event;
     };
 
     const handlePointerUp = (event: PointerEvent) => {
@@ -109,7 +109,7 @@ const usePinch = ({
 }: {
   element: HTMLDivElement | null;
   enabled?: boolean;
-  onPinch: (scale: number) => void;
+  onPinch: (focal: { x: number; y: number }, scale: number) => void;
 }) => {
   const previousDistance = useRef(-1);
 
@@ -118,6 +118,11 @@ const usePinch = ({
     onUpdate: (event1, event2) => {
       if (enabled) {
         const distance = Math.abs(event1.clientX - event2.clientX);
+
+        const focal = {
+          x: (event1.clientX + event2.clientX) / 2,
+          y: (event1.clientY + event2.clientY) / 2,
+        };
 
         let scale = 0;
 
@@ -131,7 +136,7 @@ const usePinch = ({
 
         previousDistance.current = distance;
 
-        onPinch(scale);
+        onPinch(focal, scale);
       }
     },
     onEnd: () => {
@@ -221,7 +226,10 @@ const useManipulate = ({
   usePinch({
     element,
     enabled: enablePinch,
-    onPinch: (scale) => {
+    onPinch: (focal, scale) => {
+      // translation.current.x -= focal.x * scale;
+      // translation.current.y -= focal.y * scale;
+
       translation.current.zoom = Math.max(
         minZoom,
         translation.current.zoom + scale
